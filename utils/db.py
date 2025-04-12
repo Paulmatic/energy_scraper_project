@@ -6,11 +6,11 @@ load_dotenv()
 
 def get_engine():
     # Load environment variables from .env file
-    db_user = os.getenv("DB_USERNAME", "postgres")  # Default to 'postgres' if not set
-    db_pass = os.getenv("DB_PASSWORD", "pos1234data")  # Default password
-    db_host = os.getenv("DB_HOST", "localhost")  # Default to 'localhost' for Docker
-    db_port = os.getenv("DB_PORT", "5432")  # Default PostgreSQL port
-    db_name = os.getenv("DB_NAME", "postgres")  # Default to 'postgres' database
+    db_user = os.getenv("DB_USER", "postgres")       # Matches .env
+    db_pass = os.getenv("DB_PASSWORD", "pos1234data")  # Matches .env
+    db_host = os.getenv("DB_HOST", "localhost")
+    db_port = os.getenv("DB_PORT", "5432")
+    db_name = os.getenv("DB_NAME", "postgres")
 
     # Construct the PostgreSQL connection URL
     db_url = f"postgresql://{db_user}:{db_pass}@{db_host}:{db_port}/{db_name}"
