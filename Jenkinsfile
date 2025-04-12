@@ -6,7 +6,7 @@ pipeline {
     }
 
     environment {
-        DB_HOST = 'energy_postgres'       // Network alias used for DB connection
+        DB_HOST = 'energy_postgres'
         DB_PORT = '5432'
         DB_NAME = 'energy_db'
         POSTGRES_CONTAINER = 'postgres-container'
@@ -26,9 +26,9 @@ pipeline {
         stage('Get PostgreSQL Credentials') {
             steps {
                 script {
-                    withCredentials([usernamePassword(credentialsId: 'postgres-credentials', usernameVariable: 'DB_USER', passwordVariable: 'DB_PASS')]) {
-                        env.DB_USER = DB_USER
-                        env.DB_PASS = DB_PASS
+                    withCredentials([usernamePassword(credentialsId: 'postgres-credentials', usernameVariable: 'CRED_USER', passwordVariable: 'CRED_PASS')]) {
+                        env.DB_USER = CRED_USER
+                        env.DB_PASS = CRED_PASS
                         echo "Retrieved DB credentials for user: ${env.DB_USER}"
                     }
                 }
@@ -52,33 +52,33 @@ pipeline {
         stage('Start PostgreSQL Container') {
             steps {
                 script {
-                    sh '''
-                    if [ "$(docker ps -aq -f name=$POSTGRES_CONTAINER)" ]; then
+                    sh """
+                    if [ "\$(docker ps -aq -f name=${POSTGRES_CONTAINER})" ]; then
                         echo "PostgreSQL container already exists"
-                        docker start $POSTGRES_CONTAINER
+                        docker start ${POSTGRES_CONTAINER}
                     else
-                        docker run -d --name $POSTGRES_CONTAINER \
-                            --network $NETWORK_NAME \
-                            --network-alias $DB_HOST \
-                            --restart=always \
-                            -e POSTGRES_USER=$DB_USER \
-                            -e POSTGRES_PASSWORD=$DB_PASS \
-                            -e POSTGRES_DB=$DB_NAME \
-                            -p $DB_PORT:$DB_PORT \
+                        docker run -d --name ${POSTGRES_CONTAINER} \\
+                            --network ${NETWORK_NAME} \\
+                            --network-alias ${DB_HOST} \\
+                            --restart=always \\
+                            -e POSTGRES_USER=${env.DB_USER} \\
+                            -e POSTGRES_PASSWORD=${env.DB_PASS} \\
+                            -e POSTGRES_DB=${DB_NAME} \\
+                            -p ${DB_PORT}:${DB_PORT} \\
                             postgres:latest
                     fi
-                    '''
+                    """
 
-                    sh '''
+                    sh """
                     echo "Waiting for PostgreSQL to be ready..."
                     for i in {1..15}; do
-                        if docker exec $POSTGRES_CONTAINER pg_isready -U $DB_USER; then
+                        if docker exec ${POSTGRES_CONTAINER} pg_isready -U ${env.DB_USER}; then
                             echo "PostgreSQL is ready."
                             break
                         fi
                         sleep 5
                     done
-                    '''
+                    """
                 }
             }
         }
@@ -94,23 +94,23 @@ pipeline {
         stage('Run Scraper') {
             steps {
                 script {
-                    echo "Running scraper with DB user: ${env.DB_USER}"
+                    // Make sure the container is connected
+                    sh "docker network connect ${NETWORK_NAME} ${POSTGRES_CONTAINER} || true"
 
-                    // Prevent error if already connected
-                    sh '''
-                    docker network connect $NETWORK_NAME $POSTGRES_CONTAINER || true
-                    '''
-
-                    // Run scraper with proper env var usage
-                    sh '''
-                    docker run --rm --network $NETWORK_NAME \
-                        -e DB_HOST=$DB_HOST \
-                        -e DB_PORT=$DB_PORT \
-                        -e DB_NAME=$DB_NAME \
-                        -e DB_USER=$DB_USER \
-                        -e DB_PASS=$DB_PASS \
-                        $SCRAPER_IMAGE
-                    '''
+                    // Use withCredentials + withEnv to pass credentials securely
+                    withCredentials([usernamePassword(credentialsId: 'postgres-credentials', usernameVariable: 'CRED_USER', passwordVariable: 'CRED_PASS')]) {
+                        withEnv(["DB_USER=${CRED_USER}", "DB_PASS=${CRED_PASS}"]) {
+                            sh """
+                            docker run --rm --network ${NETWORK_NAME} \\
+                                -e DB_HOST=${DB_HOST} \\
+                                -e DB_PORT=${DB_PORT} \\
+                                -e DB_NAME=${DB_NAME} \\
+                                -e DB_USER=\$DB_USER \\
+                                -e DB_PASS=\$DB_PASS \\
+                                ${SCRAPER_IMAGE}
+                            """
+                        }
+                    }
                 }
             }
         }
