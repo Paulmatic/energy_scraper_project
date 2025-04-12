@@ -12,11 +12,6 @@ pipeline {
         POSTGRES_CONTAINER = 'postgres-container'
         SCRAPER_IMAGE = 'energy-scraper:latest'
         NETWORK_NAME = 'energy-net'
-
-        // Split the credentials string into user and password
-        def credentials = credentials('postgres-credentials').split(':')
-        DB_USER = credentials[0]
-        DB_PASS = credentials[1]
     }
 
     stages {
@@ -25,6 +20,17 @@ pipeline {
                 git branch: 'main',
                     url: 'https://github.com/Paulmatic/energy_scraper_project.git',
                     credentialsId: 'github-credentials'
+            }
+        }
+
+        stage('Get PostgreSQL Credentials') {
+            steps {
+                script {
+                    // Fetch and split the PostgreSQL credentials
+                    def credentials = credentials('postgres-credentials').split(':')
+                    env.DB_USER = credentials[0]
+                    env.DB_PASS = credentials[1]
+                }
             }
         }
 
@@ -69,7 +75,7 @@ pipeline {
                             echo "PostgreSQL is ready."
                             break
                         fi
-                        sleep 90
+                        sleep 2
                     done
                     '''
                 }
