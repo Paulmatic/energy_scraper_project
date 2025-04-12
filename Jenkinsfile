@@ -9,8 +9,8 @@ pipeline {
         DB_HOST = 'energy_postgres'       // Network alias used for DB connection
         DB_PORT = '5432'
         DB_NAME = 'energy_db'
-        DB_USER = 'energy_user'
-        DB_PASS = 'energy_pass'
+        DB_USER = credentials('postgres-credentials') // Using the credentials ID
+        DB_PASS = credentials('postgres-credentials') // Using the credentials ID
         POSTGRES_CONTAINER = 'postgres-container'
         SCRAPER_IMAGE = 'energy-scraper:latest'
         NETWORK_NAME = 'energy-net'
@@ -69,14 +69,6 @@ pipeline {
                         sleep 2
                     done
                     '''
-                }
-            }
-        }
-
-        stage('Build Scraper Docker Image') {
-            steps {
-                script {
-                    sh "docker build -t ${SCRAPER_IMAGE} ."
                 }
             }
         }
