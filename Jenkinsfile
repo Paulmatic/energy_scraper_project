@@ -6,10 +6,11 @@ pipeline {
     }
 
     environment {
-        DB_HOST = 'energy_postgres'
+        DB_HOST = 'energy_postgres'       // Network alias used for DB connection
         DB_PORT = '5432'
         DB_NAME = 'energy_db'
         POSTGRES_CONTAINER = 'postgres-container'
+        PGADMIN_CONTAINER = 'energy_pgadmin'  // Added pgadmin container
         SCRAPER_IMAGE = 'energy-scraper:latest'
         NETWORK_NAME = 'energy-net'
     }
@@ -26,9 +27,9 @@ pipeline {
         stage('Get PostgreSQL Credentials') {
             steps {
                 script {
-                    withCredentials([usernamePassword(credentialsId: 'postgres-credentials', usernameVariable: 'CRED_USER', passwordVariable: 'CRED_PASS')]) {
-                        env.DB_USER = CRED_USER
-                        env.DB_PASS = CRED_PASS
+                    withCredentials([usernamePassword(credentialsId: 'postgres-credentials', usernameVariable: 'DB_USER', passwordVariable: 'DB_PASS')]) {
+                        env.DB_USER = DB_USER
+                        env.DB_PASS = DB_PASS
                         echo "Retrieved DB credentials for user: ${env.DB_USER}"
                     }
                 }
@@ -49,9 +50,10 @@ pipeline {
             }
         }
 
-        stage('Start PostgreSQL Container') {
+        stage('Start PostgreSQL and PGAdmin Containers') {
             steps {
                 script {
+                    // Start PostgreSQL container if not running
                     sh """
                     if [ "\$(docker ps -aq -f name=${POSTGRES_CONTAINER})" ]; then
                         echo "PostgreSQL container already exists"
@@ -61,24 +63,31 @@ pipeline {
                             --network ${NETWORK_NAME} \\
                             --network-alias ${DB_HOST} \\
                             --restart=always \\
-                            -e POSTGRES_USER=${env.DB_USER} \\
-                            -e POSTGRES_PASSWORD=${env.DB_PASS} \\
+                            -e POSTGRES_USER=${DB_USER} \\
+                            -e POSTGRES_PASSWORD=${DB_PASS} \\
                             -e POSTGRES_DB=${DB_NAME} \\
                             -p ${DB_PORT}:${DB_PORT} \\
                             postgres:latest
                     fi
                     """
-
+                    // Start PGAdmin container if not running
                     sh """
-                    echo "Waiting for PostgreSQL to be ready..."
-                    for i in {1..15}; do
-                        if docker exec ${POSTGRES_CONTAINER} pg_isready -U ${env.DB_USER}; then
-                            echo "PostgreSQL is ready."
-                            break
-                        fi
-                        sleep 5
-                    done
+                    if [ "\$(docker ps -aq -f name=${PGADMIN_CONTAINER})" ]; then
+                        echo "PGAdmin container already exists"
+                        docker start ${PGADMIN_CONTAINER}
+                    else
+                        docker run -d --name ${PGADMIN_CONTAINER} \\
+                            --network ${NETWORK_NAME} \\
+                            --restart=always \\
+                            -e PGADMIN_DEFAULT_EMAIL=admin@admin.com \\
+                            -e PGADMIN_DEFAULT_PASSWORD=admin1234 \\
+                            -p 8082:80 \\
+                            dpage/pgadmin4
+                    fi
                     """
+                    // Wait for containers to be fully ready
+                    echo "Waiting for PostgreSQL and PGAdmin to be ready..."
+                    sleep(90)
                 }
             }
         }
@@ -94,23 +103,18 @@ pipeline {
         stage('Run Scraper') {
             steps {
                 script {
-                    // Make sure the container is connected
+                    // Ensure the PostgreSQL container is connected to the right network
                     sh "docker network connect ${NETWORK_NAME} ${POSTGRES_CONTAINER} || true"
 
-                    // Use withCredentials + withEnv to pass credentials securely
-                    withCredentials([usernamePassword(credentialsId: 'postgres-credentials', usernameVariable: 'CRED_USER', passwordVariable: 'CRED_PASS')]) {
-                        withEnv(["DB_USER=${CRED_USER}", "DB_PASS=${CRED_PASS}"]) {
-                            sh """
-                            docker run --rm --network ${NETWORK_NAME} \\
-                                -e DB_HOST=${DB_HOST} \\
-                                -e DB_PORT=${DB_PORT} \\
-                                -e DB_NAME=${DB_NAME} \\
-                                -e DB_USER=\$DB_USER \\
-                                -e DB_PASS=\$DB_PASS \\
-                                ${SCRAPER_IMAGE}
-                            """
-                        }
-                    }
+                    sh """
+                    docker run --rm --network ${NETWORK_NAME} \\
+                        -e DB_HOST=${DB_HOST} \\
+                        -e DB_PORT=${DB_PORT} \\
+                        -e DB_NAME=${DB_NAME} \\
+                        -e DB_USER=${DB_USER} \\
+                        -e DB_PASS=${DB_PASS} \\
+                        ${SCRAPER_IMAGE}
+                    """
                 }
             }
         }
@@ -118,10 +122,10 @@ pipeline {
 
     post {
         always {
-            echo "PostgreSQL container will remain running for further access."
+            echo "PostgreSQL and PGAdmin containers will remain running for further access."
         }
         success {
-            echo "Pipeline executed successfully. PostgreSQL container is still running."
+            echo "Pipeline executed successfully. PostgreSQL and PGAdmin containers are still running."
         }
         failure {
             echo "Pipeline failed. Investigate logs for details."
