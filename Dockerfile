@@ -14,4 +14,4 @@ RUN pip install --no-cache-dir -r requirements.txt
 EXPOSE 5432
 
 # Run script.py when the container launches
-CMD ["python3", "script.py"]
+CMD ["python3", "scrape_energy_data.py"]
