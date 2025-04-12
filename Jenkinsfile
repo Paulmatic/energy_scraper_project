@@ -1,92 +1,59 @@
 pipeline {
     agent any
 
-    triggers {
-        cron('H/10 * * * *') // Run every 10 minutes, spread out per agent
-    }
-
     environment {
-        DB_HOST = 'energy_postgres'       // Network alias used for DB connection
+        // Environment Variables for PostgreSQL credentials
+        DB_HOST = 'energy_postgres'
         DB_PORT = '5432'
         DB_NAME = 'energy_db'
-        POSTGRES_CONTAINER = 'postgres-container'
-        SCRAPER_IMAGE = 'energy-scraper:latest'
-        NETWORK_NAME = 'energy-net'
+        DB_USER = credentials('postgres-username')  // Jenkins credential for DB user
+        DB_PASS = credentials('postgres-password')  // Jenkins credential for DB password
+        DOCKER_IMAGE = 'energy-scraper:latest'
+        NETWORK = 'energy-net'
     }
 
     stages {
-        stage('Clone Repo') {
+        stage('Clone Repository') {
             steps {
-                git branch: 'main',
-                    url: 'https://github.com/Paulmatic/energy_scraper_project.git',
-                    credentialsId: 'github-credentials'
+                // Clone your Git repository
+                checkout scm
             }
         }
 
-        stage('Get PostgreSQL Credentials') {
+        stage('Build Docker Image') {
             steps {
                 script {
-                    // Fetch PostgreSQL credentials from Jenkins
-                    def creds = credentials('postgres-credentials')
-                    // Assign to environment variables
-                    env.DB_USER = creds.split(':')[0]
-                    env.DB_PASS = creds.split(':')[1]
-                }
-            }
-        }
-
-        stage('Create Docker Network') {
-            steps {
-                script {
-                    def networkExists = sh(script: "docker network ls --filter name=${NETWORK_NAME} -q", returnStdout: true).trim()
-                    if (!networkExists) {
-                        echo "Creating Docker network ${NETWORK_NAME}..."
-                        sh "docker network create ${NETWORK_NAME}"
-                    } else {
-                        echo "Docker network ${NETWORK_NAME} already exists."
+                    try {
+                        // Building Docker image
+                        echo "Building Docker image: ${DOCKER_IMAGE}"
+                        sh "docker build -t ${DOCKER_IMAGE} ."
+                    } catch (Exception e) {
+                        echo "Failed to build Docker image."
+                        throw e  // Fail the pipeline if the build fails
                     }
                 }
             }
         }
 
-        stage('Start PostgreSQL Container') {
+        stage('Run PostgreSQL Container') {
             steps {
                 script {
-                    sh """
-                    if [ "\$(docker ps -aq -f name=${POSTGRES_CONTAINER})" ]; then
-                        echo "PostgreSQL container already exists"
-                        docker start ${POSTGRES_CONTAINER}
-                    else
-                        docker run -d --name ${POSTGRES_CONTAINER} \\
-                            --network ${NETWORK_NAME} \\
-                            --network-alias ${DB_HOST} \\
-                            --restart=always \\
-                            -e POSTGRES_USER=${DB_USER} \\
-                            -e POSTGRES_PASSWORD=${DB_PASS} \\
-                            -e POSTGRES_DB=${DB_NAME} \\
-                            -p ${DB_PORT}:${DB_PORT} \\
-                            postgres:13
-                    fi
-                    """
-
-                    sh '''
-                    echo "Waiting for PostgreSQL to be ready..."
-                    for i in {1..15}; do
-                        if docker exec ${POSTGRES_CONTAINER} pg_isready -U ${DB_USER}; then
-                            echo "PostgreSQL is ready."
-                            break
-                        fi
-                        sleep 2
-                    done
-                    '''
-                }
-            }
-        }
-
-        stage('Build Scraper Docker Image') {
-            steps {
-                script {
-                    sh "docker build -t ${SCRAPER_IMAGE} ."
+                    try {
+                        // Running PostgreSQL container
+                        echo "Running PostgreSQL container"
+                        sh """
+                            docker run --rm --network ${NETWORK} \
+                                -e DB_HOST=${DB_HOST} \
+                                -e DB_PORT=${DB_PORT} \
+                                -e DB_NAME=${DB_NAME} \
+                                -e DB_USER=${DB_USER} \
+                                -e DB_PASS=${DB_PASS} \
+                                ${DOCKER_IMAGE}
+                        """
+                    } catch (Exception e) {
+                        echo "Failed to run PostgreSQL container."
+                        throw e
+                    }
                 }
             }
         }
@@ -94,32 +61,43 @@ pipeline {
         stage('Run Scraper') {
             steps {
                 script {
-                    // Ensure the PostgreSQL container is connected to the right network
-                    sh "docker network connect ${NETWORK_NAME} ${POSTGRES_CONTAINER} || true"
+                    try {
+                        // Running the scraper application
+                        echo "Running the scraper with the PostgreSQL environment"
+                        sh """
+                            docker run --rm --network ${NETWORK} \
+                                -e DB_HOST=${DB_HOST} \
+                                -e DB_PORT=${DB_PORT} \
+                                -e DB_NAME=${DB_NAME} \
+                                -e DB_USER=${DB_USER} \
+                                -e DB_PASS=${DB_PASS} \
+                                ${DOCKER_IMAGE}
+                        """
+                    } catch (Exception e) {
+                        echo "Failed to run scraper."
+                        throw e
+                    }
+                }
+            }
+        }
 
-                    sh '''
-                    docker run --rm --network ${NETWORK_NAME} \\
-                        -e DB_HOST=${DB_HOST} \\
-                        -e DB_PORT=${DB_PORT} \\
-                        -e DB_NAME=${DB_NAME} \\
-                        -e DB_USER=${DB_USER} \\
-                        -e DB_PASS=${DB_PASS} \\
-                        ${SCRAPER_IMAGE}
-                    '''
+        stage('Clean Up') {
+            steps {
+                script {
+                    // Perform cleanup if needed
+                    echo "Cleaning up the environment..."
+                    sh 'docker system prune -f'
                 }
             }
         }
     }
 
     post {
-        always {
-            echo "PostgreSQL container will remain running for further access."
-        }
         success {
-            echo "Pipeline executed successfully. PostgreSQL container is still running."
+            echo 'Pipeline completed successfully!'
         }
         failure {
-            echo "Pipeline failed. Investigate logs for details."
+            echo 'Pipeline failed. Please check the logs for more details.'
         }
     }
 }
