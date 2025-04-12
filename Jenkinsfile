@@ -7,6 +7,7 @@ pipeline {
         POSTGRES_USER = 'energy_user'
         POSTGRES_PASSWORD = 'energy_pass'
         POSTGRES_DB = 'energy_db'
+        POSTGRES_HOST = 'energy_postgres'  // Alias for PostgreSQL container
     }
 
     stages {
@@ -38,7 +39,7 @@ pipeline {
                         echo "Starting PostgreSQL container"
                         docker run -d --name ${POSTGRES_CONTAINER} \
                             --network ${NETWORK_NAME} \
-                            --network-alias energy_postgres \
+                            --network-alias ${POSTGRES_HOST} \
                             --restart=always \
                             -e POSTGRES_USER=${POSTGRES_USER} \
                             -e POSTGRES_PASSWORD=${POSTGRES_PASSWORD} \
@@ -81,8 +82,8 @@ pipeline {
         stage('Run Scraper') {
             steps {
                 script {
-                    // Run the scraper container
-                    sh 'docker run --rm --network ${NETWORK_NAME} energy-scraper:latest'
+                    // Run the scraper container, ensuring it uses the same network and the alias for PostgreSQL
+                    sh 'docker run --rm --network ${NETWORK_NAME} -e DB_HOST=${POSTGRES_HOST} energy-scraper:latest'
                 }
             }
         }
