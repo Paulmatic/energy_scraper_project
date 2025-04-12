@@ -26,15 +26,10 @@ pipeline {
         stage('Get PostgreSQL Credentials') {
             steps {
                 script {
-                    withCredentials([usernamePassword(credentialsId: 'postgres-credentials', usernameVariable: 'JENKINS_DB_USER', passwordVariable: 'JENKINS_DB_PASS')]) {
-                        // Ensure the credentials are set properly before passing them to the environment
-                        if (JENKINS_DB_USER && JENKINS_DB_PASS) {
-                            env.DB_USER = JENKINS_DB_USER
-                            env.DB_PASS = JENKINS_DB_PASS
-                            echo "Retrieved DB credentials for user: ${env.DB_USER}"
-                        } else {
-                            error "DB credentials not found!"
-                        }
+                    withCredentials([usernamePassword(credentialsId: 'postgres-credentials', usernameVariable: 'DB_USER', passwordVariable: 'DB_PASS')]) {
+                        env.DB_USER = DB_USER
+                        env.DB_PASS = DB_PASS
+                        echo "Retrieved DB credentials for user: ${env.DB_USER}"
                     }
                 }
             }
@@ -57,33 +52,33 @@ pipeline {
         stage('Start PostgreSQL Container') {
             steps {
                 script {
-                    sh """
-                    if [ "\$(docker ps -aq -f name=${POSTGRES_CONTAINER})" ]; then
+                    sh '''
+                    if [ "$(docker ps -aq -f name=$POSTGRES_CONTAINER)" ]; then
                         echo "PostgreSQL container already exists"
-                        docker start ${POSTGRES_CONTAINER}
+                        docker start $POSTGRES_CONTAINER
                     else
-                        docker run -d --name ${POSTGRES_CONTAINER} \\
-                            --network ${NETWORK_NAME} \\
-                            --network-alias ${DB_HOST} \\
-                            --restart=always \\
-                            -e POSTGRES_USER=${DB_USER} \\
-                            -e POSTGRES_PASSWORD=${DB_PASS} \\
-                            -e POSTGRES_DB=${DB_NAME} \\
-                            -p ${DB_PORT}:${DB_PORT} \\
+                        docker run -d --name $POSTGRES_CONTAINER \
+                            --network $NETWORK_NAME \
+                            --network-alias $DB_HOST \
+                            --restart=always \
+                            -e POSTGRES_USER=$DB_USER \
+                            -e POSTGRES_PASSWORD=$DB_PASS \
+                            -e POSTGRES_DB=$DB_NAME \
+                            -p $DB_PORT:$DB_PORT \
                             postgres:latest
                     fi
-                    """
+                    '''
 
-                    sh """
+                    sh '''
                     echo "Waiting for PostgreSQL to be ready..."
                     for i in {1..15}; do
-                        if docker exec ${POSTGRES_CONTAINER} pg_isready -U ${DB_USER}; then
+                        if docker exec $POSTGRES_CONTAINER pg_isready -U $DB_USER; then
                             echo "PostgreSQL is ready."
                             break
                         fi
-                        sleep 120
+                        sleep 5
                     done
-                    """
+                    '''
                 }
             }
         }
@@ -99,26 +94,23 @@ pipeline {
         stage('Run Scraper') {
             steps {
                 script {
-                    // Securely pass credentials using environment variables directly to docker run
-                    withCredentials([usernamePassword(credentialsId: 'postgres-credentials', usernameVariable: 'DB_USER', passwordVariable: 'DB_PASS')]) {
-                        // Ensure DB_USER and DB_PASS are set before running scraper
-                        if (env.DB_USER && env.DB_PASS) {
-                            echo "Running scraper with DB user: ${env.DB_USER}"
-                            sh """
-                            docker network connect ${NETWORK_NAME} ${POSTGRES_CONTAINER} || true
+                    echo "Running scraper with DB user: ${env.DB_USER}"
 
-                            docker run --rm --network ${NETWORK_NAME} \\
-                                -e DB_HOST=${DB_HOST} \\
-                                -e DB_PORT=${DB_PORT} \\
-                                -e DB_NAME=${DB_NAME} \\
-                                -e DB_USER=${DB_USER} \\
-                                -e DB_PASS=${DB_PASS} \\
-                                ${SCRAPER_IMAGE}
-                            """
-                        } else {
-                            error "DB_USER or DB_PASS is not set!"
-                        }
-                    }
+                    // Prevent error if already connected
+                    sh '''
+                    docker network connect $NETWORK_NAME $POSTGRES_CONTAINER || true
+                    '''
+
+                    // Run scraper with proper env var usage
+                    sh '''
+                    docker run --rm --network $NETWORK_NAME \
+                        -e DB_HOST=$DB_HOST \
+                        -e DB_PORT=$DB_PORT \
+                        -e DB_NAME=$DB_NAME \
+                        -e DB_USER=$DB_USER \
+                        -e DB_PASS=$DB_PASS \
+                        $SCRAPER_IMAGE
+                    '''
                 }
             }
         }
