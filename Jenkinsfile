@@ -2,11 +2,11 @@ pipeline {
     agent any
 
     environment {
-        DB_HOST = 'localhost' // Or use 'postgres' if you want a Docker container for PostgreSQL
+        DB_HOST = 'localhost' // Use 'localhost' for the Docker container setup
         DB_PORT = '5432'
-        DB_NAME = 'postgres'  // Adjust if necessary
-        DB_USERNAME = 'postgres' // Default Postgres user
-        DB_PASSWORD = 'pos1234data' // Adjust to match your setup
+        DB_NAME = 'energy_db'  // Adjust the database name to match your setup
+        DB_USERNAME = 'energy_user' // Match your .env file values
+        DB_PASSWORD = 'energy_pass' // Match your .env file values
     }
 
     triggers {
@@ -61,8 +61,11 @@ pipeline {
                 ]) {
                     // Set environment variables and run the Python script
                     sh '''
-                        export DB_USERNAME=$DB_USERNAME
-                        export DB_PASSWORD=$DB_PASSWORD
+                        echo 'DB_USER=$DB_USERNAME' > .env
+                        echo 'DB_PASSWORD=$DB_PASSWORD' >> .env
+                        echo 'DB_HOST=localhost' >> .env
+                        echo 'DB_PORT=5432' >> .env
+                        echo 'DB_NAME=energy_db' >> .env
                         python3 scrape_energy_data.py
                     '''
                 }
