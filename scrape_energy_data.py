@@ -16,10 +16,12 @@ LOG_PATH = os.path.join("logs", "scrape.log")
 
 def log(message):
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    os.makedirs(os.path.dirname(LOG_PATH), exist_ok=True)
     with open(LOG_PATH, "a") as log_file:
         log_file.write(f"[{timestamp}] {message}\n")
 
 def scrape_articles():
+    log("Scraping articles from Energy Intelligence...")
     try:
         response = requests.get(URL)
         response.raise_for_status()
@@ -42,29 +44,39 @@ def scrape_articles():
             }
             all_products.append(product_info)
 
-        return pd.DataFrame(all_products)
+        df = pd.DataFrame(all_products)
+        log(f"Scraped {len(df)} articles.")
+        return df
 
     except Exception as e:
-        log(f"Scraping failed: {e}")
+        log(f"Scraping failed: {str(e)}")
         raise
 
 def save_to_csv(df):
+    log("Saving DataFrame to CSV...")
     try:
+        if df.empty:
+            log("No data to save.")
+            return
         os.makedirs(os.path.dirname(CSV_PATH), exist_ok=True)
         df.to_csv(CSV_PATH, index=False)
         log("Data saved to CSV.")
     except Exception as e:
-        log(f"CSV saving failed: {e}")
+        log(f"CSV saving failed: {str(e)}")
         raise
 
 def upload_to_postgres(df):
+    log("Uploading DataFrame to PostgreSQL...")
     try:
+        if df.empty:
+            log("No data to upload to PostgreSQL.")
+            return
         engine = get_engine()
         with engine.connect() as conn:
             df.to_sql("energy_intelligence", conn, index=False, if_exists="replace")
         log("Data uploaded to PostgreSQL.")
     except Exception as e:
-        log(f"PostgreSQL upload failed: {e}")
+        log(f"PostgreSQL upload failed: {str(e)}")
         raise
 
 if __name__ == "__main__":

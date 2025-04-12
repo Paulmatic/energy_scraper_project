@@ -2,21 +2,19 @@ pipeline {
     agent any
 
     environment {
-        DB_USERNAME = credentials('postgres-username')  // Jenkins secret ID
-        DB_PASSWORD = credentials('postgres-password')
         DB_HOST = 'localhost'
         DB_PORT = '5432'
         DB_NAME = 'postgres'
     }
 
     triggers {
-        cron('H 6 * * *')  // Runs daily at ~6 AM (randomized minute)
+        cron('H 6 * * *') // Runs daily at a randomized minute past 6 AM
     }
 
     stages {
         stage('Clone Repo') {
             steps {
-                git url: 'https://github.com/Paulmatic/python-dump.git', branch: 'main'
+                git url: 'https://github.com/Paulmatic/energy_scraper_project.git', branch: 'main'
             }
         }
 
@@ -26,9 +24,16 @@ pipeline {
             }
         }
 
-        stage('Run Scraper Script') {
+        stage('Run Scraper Script with Secrets') {
             steps {
-                sh 'python3 scrape_energy_data.py'
+                withCredentials([
+                    string(credentialsId: 'postgres-username', variable: 'DB_USERNAME'),
+                    string(credentialsId: 'postgres-password', variable: 'DB_PASSWORD')
+                ]) {
+                    sh '''
+                        python3 scrape_energy_data.py
+                    '''
+                }
             }
         }
 
