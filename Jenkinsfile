@@ -10,15 +10,11 @@ pipeline {
     }
 
     stages {
-        stage('Checkout SCM') {
-            steps {
-                checkout scm
-            }
-        }
-
         stage('Clone Repo') {
             steps {
-                git url: 'https://github.com/Paulmatic/energy_scraper_project.git', credentialsId: 'github-credentials'
+                git branch: 'main',
+                    url: 'https://github.com/Paulmatic/energy_scraper_project.git',
+                    credentialsId: 'github-credentials'
             }
         }
 
