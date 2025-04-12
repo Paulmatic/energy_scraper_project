@@ -1,4 +1,3 @@
-version: "3.8"
 
 services:
   postgres:
@@ -13,6 +12,8 @@ services:
       - "5432:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
+    networks:
+      - energy-net
 
   pgadmin:
     image: dpage/pgadmin4
@@ -27,24 +28,32 @@ services:
       - postgres
     volumes:
       - pgadmin_data:/var/lib/pgadmin
+    networks:
+      - energy-net
 
   scraper:
     build:
       context: .
-      dockerfile: Dockerfile  # Ensure Dockerfile exists in the project root
+      dockerfile: Dockerfile
     container_name: energy_scraper
     depends_on:
       - postgres
     volumes:
-      - .:/app  # Mount the current directory to /app in the container
+      - .:/app
     environment:
       DB_HOST: energy_postgres
       DB_PORT: 5432
       DB_NAME: energy_db
       DB_USER: energy_user
       DB_PASSWORD: energy_pass
-    command: python3 /app/script.py  # Ensure the correct path to your script.py
+    command: python3 /app/script.py
+    networks:
+      - energy-net
 
 volumes:
   pgdata:
   pgadmin_data:
+
+networks:
+  energy-net:
+    driver: bridge
