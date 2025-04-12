@@ -26,10 +26,11 @@ pipeline {
         stage('Get PostgreSQL Credentials') {
             steps {
                 script {
-                    // Fetch and split the PostgreSQL credentials
-                    def credentials = credentials('postgres-credentials').split(':')
-                    env.DB_USER = credentials[0]
-                    env.DB_PASS = credentials[1]
+                    // Fetch PostgreSQL credentials from Jenkins
+                    def creds = credentials('postgres-credentials')
+                    // Assign to environment variables
+                    env.DB_USER = creds.split(':')[0]
+                    env.DB_PASS = creds.split(':')[1]
                 }
             }
         }
@@ -93,10 +94,6 @@ pipeline {
         stage('Run Scraper') {
             steps {
                 script {
-                    // Print the values to check if they are set correctly
-                    echo "DB_USER: ${DB_USER}"
-                    echo "DB_PASS: ${DB_PASS}"
-
                     // Ensure the PostgreSQL container is connected to the right network
                     sh "docker network connect ${NETWORK_NAME} ${POSTGRES_CONTAINER} || true"
 
