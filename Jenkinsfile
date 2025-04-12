@@ -27,9 +27,14 @@ pipeline {
             steps {
                 script {
                     withCredentials([usernamePassword(credentialsId: 'postgres-credentials', usernameVariable: 'JENKINS_DB_USER', passwordVariable: 'JENKINS_DB_PASS')]) {
-                        env.DB_USER = JENKINS_DB_USER
-                        env.DB_PASS = JENKINS_DB_PASS
-                        echo "Retrieved DB credentials for user: ${env.DB_USER}"
+                        // Ensure the credentials are set properly before passing them to the environment
+                        if (JENKINS_DB_USER && JENKINS_DB_PASS) {
+                            env.DB_USER = JENKINS_DB_USER
+                            env.DB_PASS = JENKINS_DB_PASS
+                            echo "Retrieved DB credentials for user: ${env.DB_USER}"
+                        } else {
+                            error "DB credentials not found!"
+                        }
                     }
                 }
             }
@@ -96,17 +101,23 @@ pipeline {
                 script {
                     // Securely pass credentials using environment variables directly to docker run
                     withCredentials([usernamePassword(credentialsId: 'postgres-credentials', usernameVariable: 'DB_USER', passwordVariable: 'DB_PASS')]) {
-                        sh """
-                        docker network connect ${NETWORK_NAME} ${POSTGRES_CONTAINER} || true
+                        // Ensure DB_USER and DB_PASS are set before running scraper
+                        if (env.DB_USER && env.DB_PASS) {
+                            echo "Running scraper with DB user: ${env.DB_USER}"
+                            sh """
+                            docker network connect ${NETWORK_NAME} ${POSTGRES_CONTAINER} || true
 
-                        docker run --rm --network ${NETWORK_NAME} \\
-                            -e DB_HOST=${DB_HOST} \\
-                            -e DB_PORT=${DB_PORT} \\
-                            -e DB_NAME=${DB_NAME} \\
-                            -e DB_USER=${DB_USER} \\
-                            -e DB_PASS=${DB_PASS} \\
-                            ${SCRAPER_IMAGE}
-                        """
+                            docker run --rm --network ${NETWORK_NAME} \\
+                                -e DB_HOST=${DB_HOST} \\
+                                -e DB_PORT=${DB_PORT} \\
+                                -e DB_NAME=${DB_NAME} \\
+                                -e DB_USER=${DB_USER} \\
+                                -e DB_PASS=${DB_PASS} \\
+                                ${SCRAPER_IMAGE}
+                            """
+                        } else {
+                            error "DB_USER or DB_PASS is not set!"
+                        }
                     }
                 }
             }
