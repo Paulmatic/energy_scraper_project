@@ -62,20 +62,14 @@ pipeline {
             }
         }
 
-        stage('Run Scraper Inside Docker') {
+        stage('Run Scraper') {
             steps {
-                withCredentials([usernamePassword(credentialsId: 'postgres-credentials', usernameVariable: 'DB_USERNAME', passwordVariable: 'DB_PASSWORD')]) {
-                    script {
-                        sh """
-                        docker run --rm --network host \
-                            -e DB_USERNAME=${DB_USERNAME} \
-                            -e DB_PASSWORD=${DB_PASSWORD} \
-                            -e DB_HOST=${DB_HOST} \
-                            -e DB_PORT=${DB_PORT} \
-                            -e DB_NAME=${DB_NAME} \
-                            ${SCRAPER_IMAGE}
-                        """
-                    }
+                script {
+                    sh '''
+                        docker network create energy-net || true
+                        docker network connect energy-net ${POSTGRES_CONTAINER} || true
+                        docker run --rm --network=energy-net ${SCRAPER_IMAGE}
+                    '''
                 }
             }
         }
@@ -83,9 +77,12 @@ pipeline {
 
     post {
         always {
-            echo "Cleaning up Docker containers..."
-            sh 'docker stop ${POSTGRES_CONTAINER} || true'
-            sh 'docker rm ${POSTGRES_CONTAINER} || true'
+            echo "PostgreSQL container will remain running for further access."
+            // Optionally, you could add additional cleanup logic for other containers or tasks
+        }
+
+        success {
+            echo "Pipeline executed successfully. PostgreSQL container is still running."
         }
     }
 }
