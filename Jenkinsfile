@@ -94,16 +94,17 @@ pipeline {
         stage('Run Scraper') {
             steps {
                 script {
+                    // Securely pass credentials using environment variables directly to docker run
                     withCredentials([usernamePassword(credentialsId: 'postgres-credentials', usernameVariable: 'DB_USER', passwordVariable: 'DB_PASS')]) {
-                        sh "docker network connect ${NETWORK_NAME} ${POSTGRES_CONTAINER} || true"
-
                         sh """
+                        docker network connect ${NETWORK_NAME} ${POSTGRES_CONTAINER} || true
+
                         docker run --rm --network ${NETWORK_NAME} \\
                             -e DB_HOST=${DB_HOST} \\
                             -e DB_PORT=${DB_PORT} \\
                             -e DB_NAME=${DB_NAME} \\
-                            -e DB_USER=$DB_USER \\
-                            -e DB_PASS=$DB_PASS \\
+                            -e DB_USER=${DB_USER} \\
+                            -e DB_PASS=${DB_PASS} \\
                             ${SCRAPER_IMAGE}
                         """
                     }
