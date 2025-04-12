@@ -1,6 +1,10 @@
 pipeline {
     agent any
 
+    triggers {
+        cron('H/10 * * * *') // Run every 10 minutes, spread out per agent
+    }
+
     environment {
         DB_HOST = 'localhost'
         DB_PORT = '5432'
