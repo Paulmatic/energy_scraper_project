@@ -70,10 +70,14 @@ pipeline {
         stage('Run Scraper') {
             steps {
                 script {
-                    // Create or ensure the network exists
-                    sh "docker network create ${NETWORK_NAME} || true"
-                    
-                    // Connect PostgreSQL container to the network if not already connected
+                    // Check if the Docker network exists; if not, create it
+                    def networkExists = sh(script: "docker network ls --filter name=${NETWORK_NAME} -q", returnStdout: true).trim()
+                    if (!networkExists) {
+                        echo "Creating Docker network ${NETWORK_NAME}..."
+                        sh "docker network create ${NETWORK_NAME}"
+                    }
+
+                    // Ensure the PostgreSQL container is connected to the network
                     sh "docker network connect ${NETWORK_NAME} ${POSTGRES_CONTAINER} || true"
                     
                     // Run the scraper container connected to the same network
