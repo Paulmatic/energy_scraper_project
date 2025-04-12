@@ -2,16 +2,16 @@ pipeline {
     agent any
 
     triggers {
-        cron('H/10 * * * *')
+        cron('H/10 * * * *') // Run every 10 minutes, spread out per agent
     }
 
     environment {
-        DB_HOST = 'energy_postgres'
+        DB_HOST = 'postgres-container'  // Use the container name instead of 'energy_postgres'
         DB_PORT = '5432'
         DB_NAME = 'energy_db'
         POSTGRES_CONTAINER = 'postgres-container'
         SCRAPER_IMAGE = 'energy-scraper:latest'
-        NETWORK_NAME = 'energy-net'
+        NETWORK_NAME = 'energy-net'  // Use the same network for both containers
     }
 
     stages {
@@ -26,22 +26,25 @@ pipeline {
         stage('Start PostgreSQL Container') {
             steps {
                 script {
+                    // Start Postgres only if not running, with network alias
                     sh '''
                     if [ "$(docker ps -aq -f name=${POSTGRES_CONTAINER})" ]; then
                         echo "PostgreSQL container already exists"
                         docker start ${POSTGRES_CONTAINER}
                     else
                         docker run -d --name ${POSTGRES_CONTAINER} \
+                            --network ${NETWORK_NAME} \
+                            --network-alias energy_postgres \
                             --restart=always \
                             -e POSTGRES_USER=energy_user \
                             -e POSTGRES_PASSWORD=energy_pass \
                             -e POSTGRES_DB=energy_db \
                             -p 5432:5432 \
-                            --network ${NETWORK_NAME} \
                             postgres:13
                     fi
                     '''
 
+                    // Wait until PostgreSQL is accepting connections
                     sh '''
                     echo "Waiting for PostgreSQL to be ready..."
                     for i in {1..15}; do
@@ -67,8 +70,13 @@ pipeline {
         stage('Run Scraper') {
             steps {
                 script {
+                    // Create or ensure the network exists
                     sh "docker network create ${NETWORK_NAME} || true"
+                    
+                    // Connect PostgreSQL container to the network if not already connected
                     sh "docker network connect ${NETWORK_NAME} ${POSTGRES_CONTAINER} || true"
+                    
+                    // Run the scraper container connected to the same network
                     sh '''
                         docker run --rm --network ${NETWORK_NAME} ${SCRAPER_IMAGE}
                     '''
@@ -81,6 +89,7 @@ pipeline {
         always {
             echo "PostgreSQL container will remain running for further access."
         }
+
         success {
             echo "Pipeline executed successfully. PostgreSQL container is still running."
         }
