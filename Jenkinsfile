@@ -26,9 +26,9 @@ pipeline {
         stage('Get PostgreSQL Credentials') {
             steps {
                 script {
-                    withCredentials([usernamePassword(credentialsId: 'postgres-credentials', usernameVariable: 'DB_USER', passwordVariable: 'DB_PASS')]) {
-                        env.DB_USER = DB_USER
-                        env.DB_PASS = DB_PASS
+                    withCredentials([usernamePassword(credentialsId: 'postgres-credentials', usernameVariable: 'JENKINS_DB_USER', passwordVariable: 'JENKINS_DB_PASS')]) {
+                        env.DB_USER = JENKINS_DB_USER
+                        env.DB_PASS = JENKINS_DB_PASS
                         echo "Retrieved DB credentials for user: ${env.DB_USER}"
                     }
                 }
@@ -94,18 +94,19 @@ pipeline {
         stage('Run Scraper') {
             steps {
                 script {
-                    // Ensure the PostgreSQL container is connected to the right network
-                    sh "docker network connect ${NETWORK_NAME} ${POSTGRES_CONTAINER} || true"
+                    withCredentials([usernamePassword(credentialsId: 'postgres-credentials', usernameVariable: 'DB_USER', passwordVariable: 'DB_PASS')]) {
+                        sh "docker network connect ${NETWORK_NAME} ${POSTGRES_CONTAINER} || true"
 
-                    sh """
-                    docker run --rm --network ${NETWORK_NAME} \\
-                        -e DB_HOST=${DB_HOST} \\
-                        -e DB_PORT=${DB_PORT} \\
-                        -e DB_NAME=${DB_NAME} \\
-                        -e DB_USER=${DB_USER} \\
-                        -e DB_PASS=${DB_PASS} \\
-                        ${SCRAPER_IMAGE}
-                    """
+                        sh """
+                        docker run --rm --network ${NETWORK_NAME} \\
+                            -e DB_HOST=${DB_HOST} \\
+                            -e DB_PORT=${DB_PORT} \\
+                            -e DB_NAME=${DB_NAME} \\
+                            -e DB_USER=$DB_USER \\
+                            -e DB_PASS=$DB_PASS \\
+                            ${SCRAPER_IMAGE}
+                        """
+                    }
                 }
             }
         }
