@@ -1,3 +1,4 @@
+version: "3.8"
 
 services:
   postgres:
@@ -26,6 +27,23 @@ services:
       - postgres
     volumes:
       - pgadmin_data:/var/lib/pgadmin
+
+  scraper:
+    build:
+      context: .
+      dockerfile: Dockerfile  # Ensure Dockerfile exists in the project root
+    container_name: energy_scraper
+    depends_on:
+      - postgres
+    volumes:
+      - .:/app  # Mount the current directory to /app in the container
+    environment:
+      DB_HOST: energy_postgres
+      DB_PORT: 5432
+      DB_NAME: energy_db
+      DB_USER: energy_user
+      DB_PASSWORD: energy_pass
+    command: python3 /app/script.py  # Ensure the correct path to your script.py
 
 volumes:
   pgdata:
