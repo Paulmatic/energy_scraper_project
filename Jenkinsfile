@@ -81,7 +81,7 @@ pipeline {
                             echo "PostgreSQL is ready."
                             break
                         fi
-                        sleep 60
+                        sleep 120
                     done
                     """
                 }
