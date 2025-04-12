@@ -44,9 +44,9 @@ services:
       DB_HOST: energy_postgres
       DB_PORT: 5432
       DB_NAME: energy_db
-      DB_USER: energy_user
+      DB_USERNAME: energy_user
       DB_PASSWORD: energy_pass
-    command: python3 /app/script.py
+    command: python3 /app/scrape_energy_data.py
     networks:
       - energy-net
 
