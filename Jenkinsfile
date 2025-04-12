@@ -9,11 +9,14 @@ pipeline {
         DB_HOST = 'energy_postgres'       // Network alias used for DB connection
         DB_PORT = '5432'
         DB_NAME = 'energy_db'
-        DB_USER = credentials('postgres-credentials') // Using the credentials ID
-        DB_PASS = credentials('postgres-credentials') // Using the credentials ID
         POSTGRES_CONTAINER = 'postgres-container'
         SCRAPER_IMAGE = 'energy-scraper:latest'
         NETWORK_NAME = 'energy-net'
+
+        // Split the credentials string into user and password
+        def credentials = credentials('postgres-credentials').split(':')
+        DB_USER = credentials[0]
+        DB_PASS = credentials[1]
     }
 
     stages {
@@ -66,9 +69,17 @@ pipeline {
                             echo "PostgreSQL is ready."
                             break
                         fi
-                        sleep 2
+                        sleep 90
                     done
                     '''
+                }
+            }
+        }
+
+        stage('Build Scraper Docker Image') {
+            steps {
+                script {
+                    sh "docker build -t ${SCRAPER_IMAGE} ."
                 }
             }
         }
@@ -76,6 +87,10 @@ pipeline {
         stage('Run Scraper') {
             steps {
                 script {
+                    // Print the values to check if they are set correctly
+                    echo "DB_USER: ${DB_USER}"
+                    echo "DB_PASS: ${DB_PASS}"
+
                     // Ensure the PostgreSQL container is connected to the right network
                     sh "docker network connect ${NETWORK_NAME} ${POSTGRES_CONTAINER} || true"
 
