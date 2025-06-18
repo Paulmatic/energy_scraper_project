@@ -2,7 +2,7 @@ pipeline {
     agent any
 
     triggers {
-        cron('H H * * *') // Run every 10 minutes, spread out per agent
+        cron('H H * * *') // Run every 24 hours, spread out per agent
     }
 
     environment {
