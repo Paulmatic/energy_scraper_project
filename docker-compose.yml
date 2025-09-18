@@ -1,7 +1,8 @@
+version: "3.9"
 
 services:
   postgres:
-    image: postgres:14
+    image: ankane/pgvector:latest   # ✅ pgvector-ready Postgres
     container_name: energy_postgres
     restart: always
     environment:
@@ -12,6 +13,7 @@ services:
       - "5432:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
+      - ./docker-entrypoint-initdb.d:/docker-entrypoint-initdb.d   # ✅ init scripts
     networks:
       - energy-net
 
@@ -44,9 +46,32 @@ services:
       DB_HOST: energy_postgres
       DB_PORT: 5432
       DB_NAME: energy_db
-      DB_USERNAME: energy_user
-      DB_PASSWORD: energy_pass
+      DB_USER: energy_user
+      DB_PASS: energy_pass
+      OPENAI_API_KEY: ${OPENAI_API_KEY}   # ✅ pulled from .env
     command: python3 /app/scrape_energy_data.py
+    networks:
+      - energy-net
+
+  dashboard:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: energy_dashboard
+    depends_on:
+      - postgres
+    volumes:
+      - .:/app
+    environment:
+      DB_HOST: energy_postgres
+      DB_PORT: 5432
+      DB_NAME: energy_db
+      DB_USER: energy_user
+      DB_PASS: energy_pass
+      OPENAI_API_KEY: ${OPENAI_API_KEY}
+    command: streamlit run /app/dashboard/app.py --server.port=8501 --server.address=0.0.0.0
+    ports:
+      - "8501:8501"
     networks:
       - energy-net
 

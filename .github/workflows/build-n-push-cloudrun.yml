@@ -1,0 +1,70 @@
+name: Build and Deploy Energy Scraper to Cloud Run
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - energy_scraper/**
+      - .github/workflows/build-n-push-cloudrun.yml
+
+env:
+  PROJECT_ID: kyosk-sandbox
+  REGION: europe-west1
+  GAR_REPOSITORY: energy-scraper
+  IMAGE_NAME: energy-scraper
+  SQL_INSTANCE_CONNECTION_NAME: kyosk-sandbox:us-central1:energy-scraper-sql
+  SQL_DATABASE_NAME: energy_db
+  SQL_USER: postgres
+  SQL_PASSWORD: ${{ secrets.SQL_PASSWORD }}
+  OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+
+jobs:
+  build-deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      # ------------------- Checkout Code -------------------
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      # ------------------- Set up Python -------------------
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+
+      # ------------------- Authenticate to Google Cloud -------------------
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GCP_CREDENTIALS }}
+          export_environment_variables: true
+
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+
+      # ------------------- Configure Docker for GAR -------------------
+      - name: Configure Docker to use GAR
+        run: |
+          gcloud auth configure-docker ${REGION}-docker.pkg.dev --quiet
+
+      # ------------------- Build Docker Image -------------------
+      - name: Build Docker image
+        run: |
+          docker build -t ${REGION}-docker.pkg.dev/${PROJECT_ID}/${GAR_REPOSITORY}/${IMAGE_NAME}:latest .
+
+      # ------------------- Push Docker Image -------------------
+      - name: Push Docker image to GAR
+        run: |
+          docker push ${REGION}-docker.pkg.dev/${PROJECT_ID}/${GAR_REPOSITORY}/${IMAGE_NAME}:latest
+
+      # ------------------- Deploy to Cloud Run -------------------
+      - name: Deploy to Cloud Run
+        run: |
+          gcloud run deploy ${IMAGE_NAME} \
+            --image=${REGION}-docker.pkg.dev/${PROJECT_ID}/${GAR_REPOSITORY}/${IMAGE_NAME}:latest \
+            --region=${REGION} \
+            --platform=managed \
+            --allow-unauthenticated \
+            --set-env-vars=DATABASE_URL="postgresql://${SQL_USER}:${SQL_PASSWORD}@/${SQL_DATABASE_NAME}?host=/cloudsql/${SQL_INSTANCE_CONNECTION_NAME}",OPENAI_API_KEY=${OPENAI_API_KEY}

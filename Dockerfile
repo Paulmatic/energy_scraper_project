@@ -4,17 +4,23 @@ FROM python:3.9-slim
 # Set the working directory in the container
 WORKDIR /app
 
-# Copy the current directory contents into the container at /app
-COPY . /app
+# Install system dependencies for psycopg2
+RUN apt-get update && apt-get install -y \
+    gcc \
+    libpq-dev \
+    && rm -rf /var/lib/apt/lists/*
 
-# Make sure your script is copied correctly
-RUN ls -la /app  # This will list files in /app, check if scrape_energy_data.py exists
+# Copy requirements first (for better caching)
+COPY requirements.txt .
 
-# Install dependencies
+# Install Python dependencies
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Expose port 5432 for PostgreSQL connection if needed
-EXPOSE 5432
+# Copy the rest of your project
+COPY . .
 
-# Run the script when the container launches
-CMD ["python3", "scrape_energy_data.py"]
+# Optional: list contents for debugging
+RUN ls -la /app
+
+# Default command to run your scraper
+CMD ["python", "scrape_energy_data.py"]

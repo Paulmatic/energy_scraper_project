@@ -6,25 +6,28 @@ from dotenv import load_dotenv
 from utils.db import get_engine
 from datetime import datetime
 from dateutil import parser
+from sqlalchemy import text
+from openai import OpenAI
 
-# Load environment variables
+# ---------- Load Environment ----------
 load_dotenv()
+client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
-# Constants
+# ---------- Constants ----------
 URL = 'https://www.energyintel.com/core-service-oil-markets/?q=&f0=&from=&to=&f1=00000179-16a9-d124-a97d-7efb60f50000&f3=0&f4=00000178-eb8d-d3a9-a97a-fbad9c9f0000&f4=00000178-eb8d-d3a9-a97a-fbad9c5b0000&sourceObj='
 CSV_PATH = os.path.join("data", "energy_intelligence.csv")
 LOG_PATH = os.path.join("logs", "scrape.log")
 
+# ---------- Logging ----------
 def log(message: str):
-    """Write a message to the log file with a timestamp."""
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     os.makedirs(os.path.dirname(LOG_PATH), exist_ok=True)
     with open(LOG_PATH, "a") as log_file:
         log_file.write(f"[{timestamp}] {message}\n")
     print(f"[{timestamp}] {message}")
 
+# ---------- Scraping ----------
 def scrape_articles() -> pd.DataFrame:
-    """Scrape articles from Energy Intelligence and return as DataFrame."""
     log("Scraping articles from Energy Intelligence...")
     try:
         response = requests.get(URL, timeout=10)
@@ -48,57 +51,160 @@ def scrape_articles() -> pd.DataFrame:
             except Exception:
                 parsed_date = None
 
-            product_info = {
+            all_products.append({
                 "article_category": article_category.text.strip() if article_category else None,
                 "article": article.text.strip() if article else None,
                 "article_description": article_description.text.strip() if article_description else None,
                 "date_": parsed_date,
-            }
-            all_products.append(product_info)
+            })
 
         df = pd.DataFrame(all_products)
         df.drop_duplicates(subset=["article"], inplace=True)
         log(f"Scraped {len(df)} unique articles.")
-        if not df.empty:
-            log("Top 3 articles scraped:\n" + df.head(3).to_string(index=False))
         return df
 
     except Exception as e:
         log(f"Scraping failed: {str(e)}")
         raise
 
+# ---------- CSV ----------
 def save_to_csv(df: pd.DataFrame):
-    """Save the DataFrame to a CSV file."""
     log("Saving DataFrame to CSV...")
-    try:
-        if df.empty:
-            log("No data to save.")
-            return
-        os.makedirs(os.path.dirname(CSV_PATH), exist_ok=True)
-        df.to_csv(CSV_PATH, index=False)
-        log(f"Data saved to {CSV_PATH}.")
-    except Exception as e:
-        log(f"CSV saving failed: {str(e)}")
-        raise
+    if df.empty:
+        log("No data to save.")
+        return
+    os.makedirs(os.path.dirname(CSV_PATH), exist_ok=True)
+    df.to_csv(CSV_PATH, index=False)
+    log(f"Data saved to {CSV_PATH}.")
 
+# ---------- PostgreSQL Upload ----------
 def upload_to_postgres(df: pd.DataFrame):
-    """Upload the DataFrame to a PostgreSQL table."""
     log("Uploading DataFrame to PostgreSQL...")
-    try:
-        if df.empty:
-            log("No data to upload to PostgreSQL.")
-            return
-        engine = get_engine()
-        with engine.connect() as conn:
-            df.to_sql("energy_intelligence", conn, index=False, if_exists="replace")
-        log("Data uploaded to PostgreSQL table 'energy_intelligence'.")
-    except Exception as e:
-        log(f"PostgreSQL upload failed: {str(e)}")
-        raise
+    if df.empty:
+        log("No data to upload.")
+        return
 
+    engine = get_engine()
+    with engine.begin() as conn:
+        # Drop table and type if they exist to avoid UniqueViolation errors
+        conn.execute(text("DROP TABLE IF EXISTS energy_intelligence CASCADE;"))
+        conn.execute(text("DROP TYPE IF EXISTS energy_intelligence CASCADE;"))
+
+    # Now write fresh data
+    df.to_sql("energy_intelligence", engine, index=False, if_exists="replace")
+    log("Data uploaded to 'energy_intelligence'.")
+
+# ---------- Embeddings ----------
+def embed_text(text: str) -> list:
+    """Generate embedding, return [] on error."""
+    if not text or not text.strip():
+        return []
+    try:
+        response = client.embeddings.create(
+            model="text-embedding-3-small",
+            input=text
+        )
+        return response.data[0].embedding
+    except Exception as e:
+        log(f"Embedding failed for text '{text[:40]}...': {e}")
+        return []
+
+def upload_vectors(df: pd.DataFrame, table_name="energy_intelligence_vectors"):
+    log("Uploading embeddings to vector table...")
+    if df.empty:
+        log("No data to embed.")
+        return
+
+    engine = get_engine()
+    with engine.begin() as conn:
+        # Ensure pgvector extension exists
+        conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector;"))
+
+        # Drop vector table if it exists
+        conn.execute(text(f"DROP TABLE IF EXISTS {table_name} CASCADE;"))
+
+        # Create fresh vector table
+        conn.execute(text(f"""
+        CREATE TABLE {table_name} (
+            id BIGINT GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,
+            article TEXT,
+            article_category TEXT,
+            article_description TEXT,
+            date_ DATE,
+            embedding VECTOR(1536)
+        );
+        """))
+
+        skipped = 0
+        for _, row in df.iterrows():
+            try:
+                content = f"{row['article']} {row['article_description'] or ''}"
+                embedding = embed_text(content)
+
+                if not embedding:
+                    skipped += 1
+                    continue  # skip this row
+
+                embedding_str = "[" + ",".join(str(x) for x in embedding) + "]"
+
+                conn.execute(
+                    text(f"""
+                    INSERT INTO {table_name} 
+                    (article, article_category, article_description, date_, embedding)
+                    VALUES (:article, :article_category, :article_description, :date_, (:embedding)::vector)
+                    """),
+                    {
+                        "article": row["article"],
+                        "article_category": row["article_category"],
+                        "article_description": row["article_description"],
+                        "date_": row["date_"],
+                        "embedding": embedding_str
+                    }
+                )
+            except Exception as e:
+                log(f"Insert failed for article '{row['article'][:40]}...': {e}")
+                skipped += 1
+                continue
+
+    log(f"Embeddings uploaded successfully (skipped {skipped} rows).")
+
+# ---------- Semantic Search ----------
+def search_articles(query: str, top_k: int = 5, table_name="energy_intelligence_vectors"):
+    log(f"Searching for: {query}")
+    query_embedding = embed_text(query)
+    if not query_embedding:
+        log("Query embedding failed, returning empty DataFrame.")
+        return pd.DataFrame()
+
+    query_embedding_str = "[" + ",".join(str(x) for x in query_embedding) + "]"
+
+    engine = get_engine()
+    with engine.connect() as conn:
+        results = conn.execute(
+            text(f"""
+            SELECT article, article_category, article_description, date_, 
+                   1 - (embedding <=> (:query_embedding)::vector) AS similarity
+            FROM {table_name}
+            ORDER BY embedding <=> (:query_embedding)::vector
+            LIMIT :top_k;
+            """),
+            {"query_embedding": query_embedding_str, "top_k": top_k}
+        ).fetchall()
+
+    df = pd.DataFrame(results, columns=["article", "category", "description", "date", "similarity"])
+    log(f"Found {len(df)} results.")
+    return df
+
+# ---------- Main ----------
 if __name__ == "__main__":
     log("Script started.")
     df = scrape_articles()
     save_to_csv(df)
     upload_to_postgres(df)
+    upload_vectors(df)
+
+    # Example search
+    results = search_articles("OPEC production cuts", top_k=5)
+    print("\nTop Search Results:\n", results)
+
     log("Script finished successfully.")
